@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ColdChain Tracker — Live</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #050c14; --bg2: #0a1625; --bg3: #0f1e2f; --card: #0d1b2a;
+    --border: rgba(56,135,196,0.18); --border2: rgba(56,135,196,0.32);
+    --text: #e2edf8; --text2: #7fa8c8; --text3: #4a7a9b;
+    --green: #00e5a0; --green-bg: rgba(0,229,160,0.1);
+    --amber: #f5a623; --amber-bg: rgba(245,166,35,0.1);
+    --red: #ff4d6a; --red-bg: rgba(255,77,106,0.1);
+    --blue2: #5baadc; --accent: #00cfff; --accent-bg: rgba(0,207,255,0.08);
+    --font: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; overflow: hidden; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; height: 52px;
+    background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 28px; height: 28px; background: linear-gradient(135deg,#005fa3,#00cfff); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .logo-text { font-size: 15px; font-weight: 600; letter-spacing: -0.3px; }
+  .logo-text span { color: var(--accent); }
+  .header-center { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text3); font-family: var(--mono); }
+  .live-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; }
+  .ws-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); transition: background 0.4s; }
+  .ws-dot.connected { background: var(--green); }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.4)} }
+  .header-right { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--text2); }
+  .stat-badge { background: var(--accent-bg); border: 1px solid rgba(0,207,255,0.2); border-radius: 4px; padding: 3px 8px; font-family: var(--mono); font-size: 11px; color: var(--accent); }
+
+  .app { display: grid; grid-template-columns: 260px 1fr 300px; height: calc(100vh - 52px); overflow: hidden; }
+
+  .sidebar { background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-header { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h3 { font-size: 11px; font-weight: 500; color: var(--text3); letter-spacing: 0.8px; text-transform: uppercase; }
+  .truck-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .truck-item { padding: 10px 16px; cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; }
+  .truck-item:hover { background: var(--bg3); }
+  .truck-item.selected { background: var(--bg3); border-left-color: var(--accent); }
+  .truck-item.status-green { --sc: var(--green); }
+  .truck-item.status-amber { --sc: var(--amber); }
+  .truck-item.status-red   { --sc: var(--red); }
+  .truck-row1 { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .truck-name { font-size: 13px; font-weight: 500; }
+  .truck-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sc); flex-shrink: 0; }
+  .truck-item.status-red .truck-status-dot { animation: pulse 1.2s infinite; }
+  .truck-row2 { display: flex; align-items: center; justify-content: space-between; }
+  .truck-cargo { font-size: 11px; color: var(--text3); }
+  .truck-temp { font-size: 12px; font-family: var(--mono); font-weight: 600; color: var(--sc); }
+  .truck-risk-bar { height: 2px; background: var(--bg3); border-radius: 1px; margin-top: 6px; }
+  .truck-risk-fill { height: 100%; border-radius: 1px; background: var(--sc); transition: width 0.5s; }
+  .truck-eta { font-size: 10px; color: var(--text3); margin-top: 3px; }
+  .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg); flex-shrink: 0; }
+  .india-stat { font-size: 11px; color: var(--text3); line-height: 1.6; }
+  .india-stat strong { color: var(--red); font-weight: 600; }
+
+  .map-area { position: relative; display: flex; flex-direction: column; }
+  #map { flex: 1; }
+  .leaflet-container { background: #050c14 !important; }
+  .map-overlay { position: absolute; top: 12px; left: 12px; background: rgba(10,22,37,0.92); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; z-index: 1000; }
+  .map-overlay h4 { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  .spike-btn {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(135deg,#c00028,#ff4d6a); border: none; border-radius: 8px;
+    padding: 11px 24px; color: #fff; font-family: var(--font); font-size: 13px; font-weight: 600;
+    cursor: pointer; z-index: 1000; box-shadow: 0 4px 20px rgba(255,77,106,0.4); transition: all 0.2s;
+  }
+  .spike-btn:hover { transform: translateX(-50%) translateY(-2px); box-shadow: 0 8px 28px rgba(255,77,106,0.55); }
+  .spike-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: translateX(-50%); }
+
+  .right-panel { background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .panel-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tab { flex: 1; padding: 12px 8px; font-size: 11px; font-weight: 500; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; cursor: pointer; text-align: center; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .card-title { font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+  .card.danger-card { border-color: rgba(255,77,106,0.4); background: rgba(255,77,106,0.05); }
+  .card.warn-card { border-color: rgba(245,166,35,0.35); background: rgba(245,166,35,0.04); }
+
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .metric { background: var(--bg3); border-radius: 6px; padding: 10px 12px; }
+  .metric-label { font-size: 10px; color: var(--text3); margin-bottom: 3px; }
+  .metric-val { font-size: 20px; font-weight: 600; font-family: var(--mono); line-height: 1; }
+  .metric-val.green { color: var(--green); } .metric-val.amber { color: var(--amber); }
+  .metric-val.red { color: var(--red); } .metric-val.blue { color: var(--blue2); }
+
+  .chart-wrap { position: relative; height: 120px; }
+  .spoilage-bar-wrap { margin-top: 6px; }
+  .spoilage-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text2); margin-bottom: 4px; }
+  .spoilage-track { height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+  .spoilage-fill { height: 100%; border-radius: 4px; transition: width 0.6s, background 0.4s; }
+
+  .alert-item { background: var(--bg3); border-radius: 6px; padding: 10px 12px; border-left: 3px solid var(--border); transition: all 0.3s; margin-bottom: 8px; }
+  .alert-item.alert-red { border-left-color: var(--red); }
+  .alert-item.alert-amber { border-left-color: var(--amber); }
+  .alert-item.alert-green { border-left-color: var(--green); }
+  .alert-item.alert-new { animation: alertIn 0.4s ease-out; }
+  @keyframes alertIn { from{transform:translateY(-10px);opacity:0} to{transform:translateY(0);opacity:1} }
+  .alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .alert-title { font-size: 12px; font-weight: 600; }
+  .alert-time { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+  .alert-body { font-size: 11px; color: var(--text2); line-height: 1.5; }
+  .alert-chip { display: inline-block; font-size: 9px; font-weight: 600; letter-spacing: 0.5px; padding: 2px 6px; border-radius: 3px; margin-top: 5px; text-transform: uppercase; }
+  .chip-red { background: var(--red-bg); color: var(--red); border: 1px solid rgba(255,77,106,0.3); }
+  .chip-amber { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(245,166,35,0.3); }
+  .chip-green { background: var(--green-bg); color: var(--green); border: 1px solid rgba(0,229,160,0.3); }
+  .chip-blue { background: var(--accent-bg); color: var(--accent); border: 1px solid rgba(0,207,255,0.3); }
+
+  .reroute-card { background: var(--bg3); border: 1px solid rgba(255,77,106,0.35); border-radius: 8px; padding: 12px; margin-top: 2px; }
+  .reroute-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .reroute-title { font-size: 12px; font-weight: 600; color: var(--red); }
+  .reroute-body { font-size: 11px; color: var(--text2); line-height: 1.6; }
+  .depot-route { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); margin-top: 8px; background: var(--bg2); border-radius: 4px; padding: 7px 10px; }
+  .depot-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .whatsapp-notif { position: fixed; top: 70px; right: 20px; z-index: 9999; background: #1a2e22; border: 1px solid #25d366; border-radius: 12px; padding: 14px 16px; width: 280px; font-size: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); animation: slideIn 0.4s cubic-bezier(0.34,1.56,0.64,1); display: none; }
+  @keyframes slideIn { from{transform:translateX(120%);opacity:0} to{transform:translateX(0);opacity:1} }
+  .wa-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .wa-icon { width: 28px; height: 28px; background: #25d366; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .wa-app { font-size: 11px; color: #25d366; font-weight: 600; }
+  .wa-body { font-size: 11px; color: #c8e6d0; line-height: 1.5; white-space: pre-line; }
+  .wa-time { font-size: 10px; color: #7a9e87; margin-top: 4px; text-align: right; }
+
+  .alert-ticker { background: var(--red-bg); border-bottom: 1px solid rgba(255,77,106,0.3); padding: 6px 20px; font-size: 11px; color: var(--red); font-family: var(--mono); display: none; align-items: center; gap: 8px; flex-shrink: 0; }
+  .alert-ticker.show { display: flex; animation: alertIn 0.3s ease; }
+  .ticker-blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .section-label { font-size: 10px; font-weight: 500; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; margin-top: 4px; }
+  .panel-section { display: none; flex-direction: column; gap: 12px; }
+  .panel-section.active { display: flex; }
+  * { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+</style>
+</head>
+<body>
+
+<!-- WhatsApp Notification -->
+<div class="whatsapp-notif" id="waNotif">
+  <div class="wa-header">
+    <div class="wa-icon">📱</div>
+    <div><div class="wa-app">WhatsApp</div><div style="font-size:10px;color:#7a9e87">ColdChain Alert System</div></div>
+  </div>
+  <div class="wa-body" id="waBody"></div>
+  <div class="wa-time" id="waTime"></div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🚛</div>
+    <div class="logo-text">Cold<span>Chain</span> Tracker</div>
+  </div>
+  <div class="header-center">
+    <div class="live-dot"></div>
+    <span>LIVE — TAMIL NADU GRID</span>
+    &nbsp;•&nbsp;
+    <div class="ws-dot" id="wsDot"></div>
+    <span id="wsStatus">Connecting...</span>
+    &nbsp;•&nbsp;
+    <span id="clock"></span>
+  </div>
+  <div class="header-right">
+    <div class="stat-badge" id="breachCount">0 BREACHES</div>
+    <div class="stat-badge" id="activeCount">6 ACTIVE</div>
+  </div>
+</header>
+
+<div class="alert-ticker" id="alertTicker">
+  <span class="ticker-blink">⚠</span>
+  <span id="tickerMsg"></span>
+</div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header"><h3>Active Routes</h3></div>
+    <div class="truck-list" id="truckList"></div>
+    <div class="sidebar-footer">
+      <div class="india-stat">India loses <strong>₹92,000 Cr</strong> worth of food annually due to broken cold chains. Real-time monitoring can prevent up to <strong>40%</strong> of losses.</div>
+    </div>
+  </aside>
+
+  <main class="map-area">
+    <div id="map"></div>
+    <div class="map-overlay">
+      <h4>Status Legend</h4>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Within SLA</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div> Warning (+2°C)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Breach — Rerouting</div>
+    </div>
+    <button class="spike-btn" id="spikeBtn" onclick="spikeTemperature()">
+      🌡️ SIMULATE BREACH — Spike Truck Temperature
+    </button>
+  </main>
+
+  <aside class="right-panel">
+    <div class="panel-tabs">
+      <div class="tab active" onclick="switchTab('monitor')">Monitor</div>
+      <div class="tab" onclick="switchTab('alerts')">Alerts <span id="alertBadge" style="display:none;background:var(--red);color:#fff;border-radius:3px;padding:1px 5px;font-size:9px;margin-left:3px">0</span></div>
+      <div class="tab" onclick="switchTab('analytics')">Analytics</div>
+    </div>
+    <div class="panel-body">
+      <div class="panel-section active" id="tab-monitor">
+        <div class="section-label">Selected Truck</div>
+        <div id="truckDetail"></div>
+        <div class="section-label">Temperature (last 30 readings)</div>
+        <div class="card"><div class="chart-wrap"><canvas id="tempChart"></canvas></div></div>
+        <div class="section-label">Spoilage Risk</div>
+        <div id="spoilageCard"></div>
+        <div id="rerouteCard" style="display:none"></div>
+      </div>
+      <div class="panel-section" id="tab-alerts">
+        <div class="section-label">Live Alert Feed</div>
+        <div id="alertFeed"></div>
+      </div>
+      <div class="panel-section" id="tab-analytics">
+        <div class="section-label">Fleet Overview</div>
+        <div class="metrics" id="fleetMetrics"></div>
+        <div class="card" style="margin-top:4px">
+          <div class="card-title">Cargo Type Distribution</div>
+          <div style="position:relative;height:130px"><canvas id="cargoChart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Spoilage Risk per Route</div>
+          <div style="position:relative;height:130px"><canvas id="riskChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────
+const WS_URL = 'ws://localhost:8000/ws';  // change to your server if deployed
+const SPIKE_URL = 'http://localhost:8000/spike';
+
+// ── STATE ───────────────────────────────────────
+let TRUCKS = {};
+let selectedId = null;
+let alertCount = 0;
+let tempChart = null, cargoChart = null, riskChart = null;
+let markers = {};
+let routeLines = {};
+let ws = null;
+let alreadyBreached = new Set();
+
+// ── MAP ─────────────────────────────────────────
+const map = L.map('map', { center: [10.8, 78.6], zoom: 7, zoomControl: true, attributionControl: false });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(map);
+
+function makeIcon(truck) {
+  const c = { green: '#00e5a0', amber: '#f5a623', red: '#ff4d6a' }[truck.status] || '#00e5a0';
+  const pulse = truck.status === 'red' ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;border:2px solid ${c};animation:mPulse 1.2s infinite;opacity:0.5;"></div>` : '';
+  return L.divIcon({
+    html: `<style>@keyframes mPulse{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:.6}50%{transform:translate(-50%,-50%) scale(2.2);opacity:0}}</style>
+      <div style="position:relative;display:flex;align-items:center;justify-content:center">${pulse}
+        <div style="width:32px;height:32px;border-radius:50%;background:#0a1625;border:2.5px solid ${c};display:flex;align-items:center;justify-content:center;font-size:14px;position:relative;z-index:1;box-shadow:0 0 12px ${c}55">${truck.emoji}</div>
+      </div>`,
+    className: '', iconSize: [36, 36], iconAnchor: [18, 18]
+  });
+}
+
+function initMarkers(trucks) {
+  Object.values(trucks).forEach(t => {
+    const line = L.polyline([[t.lat, t.lng],[t.dest_lat, t.dest_lng]], { color: '#00e5a0', weight: 1.5, opacity: 0.25, dashArray: '4 6' }).addTo(map);
+    const marker = L.marker([t.lat, t.lng], { icon: makeIcon(t) }).addTo(map).on('click', () => selectTruck(t.id));
+    markers[t.id] = marker;
+    routeLines[t.id] = line;
+  });
+}
+
+function updateMarkers() {
+  Object.values(TRUCKS).forEach(t => {
+    if (markers[t.id]) markers[t.id].setIcon(makeIcon(t));
+  });
+}
+
+// ── WEBSOCKET ────────────────────────────────────
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById('wsDot').classList.add('connected');
+    document.getElementById('wsStatus').textContent = 'WS LIVE';
+    console.log('[WS] Connected');
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'snapshot' || msg.type === 'sensor_update') {
+      const incoming = msg.trucks;
+
+      // First snapshot → init markers
+      if (Object.keys(TRUCKS).length === 0) {
+        TRUCKS = incoming;
+        initMarkers(TRUCKS);
+        const firstId = Object.keys(TRUCKS)[0];
+        selectTruck(firstId);
+      } else {
+        // Check for new breaches before merging
+        Object.values(incoming).forEach(t => {
+          if (t.status === 'red' && !alreadyBreached.has(t.id)) {
+            alreadyBreached.add(t.id);
+            onBreachDetected(t);
+          } else if (t.status !== 'red') {
+            alreadyBreached.delete(t.id);
+          }
+        });
+        TRUCKS = incoming;
+      }
+
+      updateMarkers();
+      renderTruckList();
+      updateHeaderStats();
+
+      if (selectedId && TRUCKS[selectedId]) {
+        renderTruckDetail();
+        renderTempChart();
+        renderSpoilageCard();
+        updateRerouteCard();
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('wsDot').classList.remove('connected');
+    document.getElementById('wsStatus').textContent = 'Reconnecting...';
+    setTimeout(connectWS, 3000); // auto-reconnect
+  };
+
+  ws.onerror = () => {
+    document.getElementById('wsStatus').textContent = 'WS Error';
+  };
+}
+
+// ── BREACH HANDLER ───────────────────────────────
+function onBreachDetected(truck) {
+  addAlert('red',
+    `${truck.id} Temperature Breach`,
+    `${truck.emoji} ${truck.cargo} hit ${truck.temp}°C (SLA max: ${truck.sla_max}°C). Spoilage risk: ${truck.spoilage}%. Auto-reroute initiated.`
+  );
+  setTimeout(() => {
+    showWhatsApp(truck);
+    addAlert('blue', `${truck.id} Rerouted → Koyambedu Hub`, `Depot notified via WhatsApp. Cold storage confirmed. Driver ETA: 18 min.`);
+  }, 1800);
+  // Ticker
+  const ticker = document.getElementById('alertTicker');
+  ticker.classList.add('show');
+  document.getElementById('tickerMsg').textContent = `SLA BREACH: ${truck.id} (${truck.cargo}) — Rerouting to Koyambedu Cold Hub`;
+  setTimeout(() => ticker.classList.remove('show'), 8000);
+}
+
+// ── SPIKE BUTTON ─────────────────────────────────
+async function spikeTemperature() {
+  const btn = document.getElementById('spikeBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Spiking...';
+
+  // Pick first non-red truck
+  const target = Object.values(TRUCKS).find(t => t.status !== 'red');
+  if (!target) { btn.textContent = '✅ All trucks breached'; return; }
+
+  // Option A: via REST endpoint
+  try {
+    await fetch(`${SPIKE_URL}/${target.id}?delta=8`, { method: 'POST' });
+  } catch {
+    // Option B: via WebSocket message (fallback)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: 'spike', truck_id: target.id, delta: 8 }));
+    }
+  }
+
+  btn.textContent = '✅ Breach Triggered — Watch the Map!';
+  btn.style.background = 'linear-gradient(135deg,#005830,#00e5a0)';
+  btn.style.boxShadow = '0 4px 20px rgba(0,229,160,0.3)';
+}
+
+// ── WHATSAPP NOTIF ───────────────────────────────
+function showWhatsApp(truck) {
+  const el = document.getElementById('waNotif');
+  document.getElementById('waBody').textContent =
+    `🚨 COLD CHAIN BREACH\n\nTruck: ${truck.id}\nCargo: ${truck.emoji} ${truck.cargo}\nTemp: ${truck.temp}°C (SLA max: ${truck.sla_max}°C)\nSpoilage: ${truck.spoilage}%\n\n✅ Rerouted → Koyambedu Cold Hub\n12.4 km | ETA 18 min\n\nPlease acknowledge.`;
+  document.getElementById('waTime').textContent = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 8000);
+}
+
+// ── ALERT FEED ────────────────────────────────────
+function addAlert(type, title, body) {
+  alertCount++;
+  const badge = document.getElementById('alertBadge');
+  badge.style.display = 'inline'; badge.textContent = alertCount;
+  const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const chipClass = { red: 'chip-red', amber: 'chip-amber', green: 'chip-green', blue: 'chip-blue' }[type];
+  const chipLabel = { red: 'BREACH', amber: 'WARNING', green: 'RESOLVED', blue: 'REROUTE' }[type];
+  const div = document.createElement('div');
+  div.className = `alert-item alert-${type} alert-new`;
+  div.innerHTML = `<div class="alert-header"><span class="alert-title">${title}</span><span class="alert-time">${timeStr}</span></div><div class="alert-body">${body}</div><span class="alert-chip ${chipClass}">${chipLabel}</span>`;
+  document.getElementById('alertFeed').prepend(div);
+}
+
+// ── TRUCK LIST ────────────────────────────────────
+function renderTruckList() {
+  document.getElementById('truckList').innerHTML = Object.values(TRUCKS).map(t => `
+    <div class="truck-item status-${t.status} ${t.id === selectedId ? 'selected' : ''}" onclick="selectTruck('${t.id}')">
+      <div class="truck-row1"><span class="truck-name">${t.emoji} ${t.id}</span><div class="truck-status-dot"></div></div>
+      <div class="truck-row2"><span class="truck-cargo">${t.cargo}</span><span class="truck-temp">${t.temp.toFixed(1)}°C</span></div>
+      <div class="truck-risk-bar"><div class="truck-risk-fill" style="width:${Math.min(t.spoilage,100)}%"></div></div>
+      <div class="truck-eta">ETA: ${t.eta} • Risk: ${t.spoilage}%</div>
+    </div>`).join('');
+}
+
+function selectTruck(id) {
+  selectedId = id;
+  renderTruckList();
+  renderTruckDetail();
+  renderTempChart();
+  renderSpoilageCard();
+  updateRerouteCard();
+  const t = TRUCKS[id];
+  if (t) map.panTo([t.lat, t.lng], { animate: true, duration: 0.5 });
+}
+
+function renderTruckDetail() {
+  const t = TRUCKS[selectedId]; if (!t) return;
+  const sc = t.status;
+  const statusLabel = { green: 'WITHIN SLA', amber: 'WARNING', red: 'SLA BREACH' }[sc];
+  document.getElementById('truckDetail').innerHTML = `
+    <div class="card ${sc === 'red' ? 'danger-card' : sc === 'amber' ? 'warn-card' : ''}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:14px;font-weight:600">${t.emoji} ${t.id}</div>
+        <span class="alert-chip chip-${sc === 'green' ? 'green' : sc === 'amber' ? 'amber' : 'red'}">${statusLabel}</span>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-label">Temperature</div><div class="metric-val ${sc}">${t.temp.toFixed(1)}°C</div></div>
+        <div class="metric"><div class="metric-label">Humidity</div><div class="metric-val blue">${t.humidity}%</div></div>
+        <div class="metric"><div class="metric-label">SLA Range</div><div class="metric-val" style="font-size:14px">${t.sla_min}°–${t.sla_max}°C</div></div>
+        <div class="metric"><div class="metric-label">ETA</div><div class="metric-val" style="font-size:14px;color:var(--text2)">${t.eta}</div></div>
+      </div>
+    </div>`;
+}
+
+function renderSpoilageCard() {
+  const t = TRUCKS[selectedId]; if (!t) return;
+  const risk = t.spoilage;
+  const rc = risk < 15 ? '#00e5a0' : risk < 40 ? '#f5a623' : '#ff4d6a';
+  document.getElementById('spoilageCard').innerHTML = `
+    <div class="card">
+      <div class="spoilage-bar-wrap">
+        <div class="spoilage-label"><span>Predicted spoilage risk</span><span style="color:${rc};font-weight:600;font-family:var(--mono)">${risk}%</span></div>
+        <div class="spoilage-track"><div class="spoilage-fill" style="width:${risk}%;background:${rc}"></div></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:5px">Q10 model • ${t.cargo} SLA: ${t.sla_min}°–${t.sla_max}°C</div>
+      </div>
+    </div>`;
+}
+
+function updateRerouteCard() {
+  const t = TRUCKS[selectedId]; if (!t) return;
+  const el = document.getElementById('rerouteCard');
+  if (t.status === 'red') {
+    el.style.display = 'block';
+    el.innerHTML = `<div class="reroute-card">
+      <div class="reroute-header"><span>🚨</span><span class="reroute-title">Auto-Reroute Triggered</span></div>
+      <div class="reroute-body">Shipment <strong>${t.id}</strong> (${t.cargo}) breached SLA. Nearest cold depot:</div>
+      <div class="depot-route">
+        <div class="depot-dot" style="background:var(--red)"></div>
+        <span style="color:var(--text3)">Current</span><span>→</span>
+        <div class="depot-dot" style="background:var(--green)"></div>
+        <span style="color:var(--green);font-weight:500">Koyambedu Cold Hub</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-top:8px">Distance: 12.4 km • ETA to depot: 18 min</div>
+    </div>`;
+  } else { el.style.display = 'none'; }
+}
+
+// ── TEMP CHART ────────────────────────────────────
+function renderTempChart() {
+  const t = TRUCKS[selectedId]; if (!t) return;
+  const ctx = document.getElementById('tempChart').getContext('2d');
+  const lc = { green: '#00e5a0', amber: '#f5a623', red: '#ff4d6a' }[t.status];
+  const labels = t.history.map((_, i) => i === 0 ? '-30' : i === 14 ? '-15' : i === 29 ? 'now' : '');
+  if (tempChart) tempChart.destroy();
+  tempChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [
+      { data: t.history, borderColor: lc, backgroundColor: lc + '18', borderWidth: 2, pointRadius: 0, fill: true, tension: 0.4 },
+      { data: Array(30).fill(t.sla_max), borderColor: 'rgba(255,77,106,0.4)', borderWidth: 1, borderDash: [4,4], pointRadius: 0, fill: false },
+      { data: Array(30).fill(t.sla_min), borderColor: 'rgba(0,207,255,0.3)', borderWidth: 1, borderDash: [4,4], pointRadius: 0, fill: false },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.parsed.y.toFixed(1)}°C` } } },
+      scales: {
+        x: { ticks: { color: '#4a7a9b', font: { size: 9 } }, grid: { color: 'rgba(56,135,196,0.08)' }, border: { display: false } },
+        y: { ticks: { color: '#4a7a9b', font: { size: 9 }, callback: v => v + '°' }, grid: { color: 'rgba(56,135,196,0.08)' }, border: { display: false } }
+      }, animation: { duration: 200 }
+    }
+  });
+}
+
+// ── ANALYTICS ─────────────────────────────────────
+function renderAnalytics() {
+  const trucks = Object.values(TRUCKS);
+  const greens = trucks.filter(t => t.status === 'green').length;
+  const ambers = trucks.filter(t => t.status === 'amber').length;
+  const reds = trucks.filter(t => t.status === 'red').length;
+  const avgRisk = Math.round(trucks.reduce((s,t) => s + t.spoilage, 0) / trucks.length);
+  document.getElementById('fleetMetrics').innerHTML = `
+    <div class="metric"><div class="metric-label">Safe Routes</div><div class="metric-val green">${greens}</div></div>
+    <div class="metric"><div class="metric-label">At Risk</div><div class="metric-val amber">${ambers}</div></div>
+    <div class="metric"><div class="metric-label">Breached</div><div class="metric-val red">${reds}</div></div>
+    <div class="metric"><div class="metric-label">Avg Spoilage</div><div class="metric-val amber">${avgRisk}%</div></div>`;
+
+  const cargoCounts = {};
+  trucks.forEach(t => { cargoCounts[t.cargo] = (cargoCounts[t.cargo] || 0) + 1; });
+  const cCtx = document.getElementById('cargoChart').getContext('2d');
+  if (cargoChart) cargoChart.destroy();
+  cargoChart = new Chart(cCtx, {
+    type: 'doughnut',
+    data: { labels: Object.keys(cargoCounts), datasets: [{ data: Object.values(cargoCounts), backgroundColor: ['#00e5a0','#5baadc','#f5a623','#ff4d6a','#00cfff'], borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'right', labels: { color: '#7fa8c8', font: { size: 10 }, boxWidth: 8, padding: 8 } } } }
+  });
+
+  const rCtx = document.getElementById('riskChart').getContext('2d');
+  if (riskChart) riskChart.destroy();
+  riskChart = new Chart(rCtx, {
+    type: 'bar',
+    data: {
+      labels: trucks.map(t => t.id),
+      datasets: [{ data: trucks.map(t => t.spoilage), backgroundColor: trucks.map(t => ({ green: 'rgba(0,229,160,0.6)', amber: 'rgba(245,166,35,0.6)', red: 'rgba(255,77,106,0.8)' }[t.status])), borderRadius: 3 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#4a7a9b', font: { size: 9 } }, grid: { display: false }, border: { display: false } },
+        y: { ticks: { color: '#4a7a9b', font: { size: 9 }, callback: v => v + '%' }, grid: { color: 'rgba(56,135,196,0.08)' }, border: { display: false }, max: 100 }
+      }
+    }
+  });
+}
+
+// ── HEADER STATS ──────────────────────────────────
+function updateHeaderStats() {
+  const trucks = Object.values(TRUCKS);
+  const breaches = trucks.filter(t => t.status === 'red').length;
+  document.getElementById('breachCount').textContent = `${breaches} BREACH${breaches !== 1 ? 'ES' : ''}`;
+  document.getElementById('activeCount').textContent = `${trucks.length} ACTIVE`;
+}
+
+// ── TAB SWITCH ────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    el.classList.toggle('active', ['monitor','alerts','analytics'][i] === tab);
+  });
+  document.querySelectorAll('.panel-section').forEach(el => {
+    el.classList.toggle('active', el.id === `tab-${tab}`);
+  });
+  if (tab === 'analytics') renderAnalytics();
+  if (tab === 'alerts') { document.getElementById('alertBadge').style.display = 'none'; alertCount = 0; }
+}
+
+// ── CLOCK ─────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-IN', { hour12: false });
+}, 1000);
+
+// ── INIT ──────────────────────────────────────────
+connectWS();
+</script>
+</body>
+</html>
