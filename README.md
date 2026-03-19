@@ -121,6 +121,10 @@ Then update these two lines in `index.html`:
 const WS_URL    = 'wss://xxxx.ngrok.io/ws';
 const SPIKE_URL = 'https://xxxx.ngrok.io/spike';
 ```
+---
+![WhatsApp Image 2026-03-20 at 12 56 33 AM](https://github.com/user-attachments/assets/132201a2-172d-4637-865f-07befc2af132)
+![WhatsApp Image 2026-03-20 at 12 56 35 AM](https://github.com/user-attachments/assets/2cb0bf22-f57f-42a1-8987-3d83527a1cf2)
+![WhatsApp Image 2026-03-20 at 12 57 48 AM](https://github.com/user-attachments/assets/acd612bb-b2e4-456f-84bb-be9c8b793eeb)
 
 ---
 
